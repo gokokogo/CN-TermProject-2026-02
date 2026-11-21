@@ -1,15 +1,13 @@
-import secrets
-import sqlite3
 import time
-from contextlib import contextmanager
 from pathlib import Path
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
+from reservation_server import ServerRuntime, tcp_request
+
 st.set_page_config(page_title="CINEMA | 영화 예매", page_icon="🎬", layout="wide")
 
-DB_PATH = Path(__file__).parent / "cinema_demo.db"
 HOLD_SECONDS = 300
 ROWS = "ABCDE"
 COLUMNS = 8
@@ -36,163 +34,55 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@contextmanager
-def db_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=20, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA busy_timeout=20000")
-        conn.execute("PRAGMA journal_mode=WAL")
-        yield conn
-    finally:
-        conn.close()
+@st.cache_resource
+def get_tcp_runtime():
+    return ServerRuntime()
 
 
-def init_db():
-    with db_conn() as db:
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS seats (
-            screening TEXT NOT NULL,
-            seat TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('PENDING','RESERVED')),
-            user_id TEXT NOT NULL,
-            hold_id TEXT,
-            booking_code TEXT,
-            expires_at REAL,
-            PRIMARY KEY(screening, seat)
-        );
-        """)
-        db.execute("CREATE INDEX IF NOT EXISTS idx_seats_user ON seats(user_id)")
+_tcp_runtime = get_tcp_runtime()
+TCP_ADDRESS = _tcp_runtime.address
 
 
-def expire_holds(db):
-    db.execute(
-        "DELETE FROM seats WHERE status='PENDING' AND expires_at <= ?",
-        (time.time(),)
-    )
-
-
-def get_seats(screening, user_id):
-    with db_conn() as db:
-        db.execute("BEGIN IMMEDIATE")
-        expire_holds(db)
-        rows = db.execute(
-            "SELECT * FROM seats WHERE screening=?", (screening,)
-        ).fetchall()
-        db.commit()
-
-    by_seat = {r["seat"]: r for r in rows}
-    result = []
-    for row in ROWS:
-        for col in range(1, COLUMNS + 1):
-            seat = f"{row}{col}"
-            item = by_seat.get(seat)
-            if not item:
-                result.append({"seat": seat, "status": "AVAILABLE"})
-            else:
-                result.append({
-                    "seat": seat,
-                    "status": item["status"],
-                    "mine": item["user_id"] == user_id,
-                    "remaining": max(
-                        0, int(item["expires_at"] - time.time() + .999)
-                    ) if item["status"] == "PENDING" else None
-                })
+def rpc(op, **fields):
+    result = tcp_request(TCP_ADDRESS, op, **fields)
+    if not result.get("ok", True):
+        return result
     return result
 
 
+def get_seats(screening, user_id):
+    result = rpc("GET_SEATS", screening=screening, user_id=user_id)
+    if not result.get("ok", True):
+        raise RuntimeError(result.get("message", "좌석 조회 실패"))
+    return result["seats"]
+
+
 def create_hold(screening, seat, user_id):
-    with db_conn() as db:
-        db.execute("BEGIN IMMEDIATE")
-        expire_holds(db)
-        exists = db.execute(
-            "SELECT 1 FROM seats WHERE screening=? AND seat=?",
-            (screening, seat)
-        ).fetchone()
-
-        if exists:
-            db.rollback()
-            return False, "이미 다른 사용자가 선택했거나 예약한 좌석입니다.", None
-
-        hold_id = secrets.token_urlsafe(18)
-        expires = time.time() + HOLD_SECONDS
-        db.execute(
-            "INSERT INTO seats VALUES (?, ?, 'PENDING', ?, ?, NULL, ?)",
-            (screening, seat, user_id, hold_id, expires)
-        )
-        db.commit()
-
-    hold = {
-        "screening": screening,
-        "seat": seat,
-        "hold_id": hold_id,
-        "expires_at": expires
-    }
-    return True, "좌석을 5분간 임시 점유했습니다.", hold
+    result = rpc("CREATE_HOLD", screening=screening, seat=seat, user_id=user_id)
+    return result.get("ok", False), result.get("message", ""), result.get("hold")
 
 
 def pay_hold(hold, user_id):
-    with db_conn() as db:
-        db.execute("BEGIN IMMEDIATE")
-        expire_holds(db)
-        row = db.execute(
-            "SELECT * FROM seats WHERE screening=? AND seat=?",
-            (hold["screening"], hold["seat"])
-        ).fetchone()
-
-        if (not row or row["status"] != "PENDING"
-                or row["user_id"] != user_id
-                or row["hold_id"] != hold["hold_id"]):
-            db.rollback()
-            return False, "임시 점유가 만료되었거나 유효하지 않습니다.", None
-
-        code = secrets.token_urlsafe(9).upper()
-        db.execute("""
-            UPDATE seats
-            SET status='RESERVED', hold_id=NULL,
-                booking_code=?, expires_at=NULL
-            WHERE screening=? AND seat=?
-        """, (code, hold["screening"], hold["seat"]))
-        db.commit()
-
-    return True, "모의 결제가 완료되어 예매가 확정되었습니다.", code
+    result = rpc("PAY_HOLD", hold=hold, user_id=user_id)
+    return result.get("ok", False), result.get("message", ""), result.get("code")
 
 
 def release_hold(hold, user_id):
-    with db_conn() as db:
-        db.execute("BEGIN IMMEDIATE")
-        db.execute("""
-            DELETE FROM seats
-            WHERE screening=? AND seat=? AND status='PENDING'
-              AND user_id=? AND hold_id=?
-        """, (hold["screening"], hold["seat"], user_id, hold["hold_id"]))
-        changed = db.execute("SELECT changes()").fetchone()[0]
-        db.commit()
-    return changed == 1
+    result = rpc("RELEASE_HOLD", hold=hold, user_id=user_id)
+    return result.get("released", False)
 
 
 def reservations(user_id):
-    with db_conn() as db:
-        rows = db.execute("""
-            SELECT screening, seat, booking_code
-            FROM seats
-            WHERE user_id=? AND status='RESERVED'
-            ORDER BY screening, seat
-        """, (user_id,)).fetchall()
-    return [dict(r) for r in rows]
+    result = rpc("RESERVATIONS", user_id=user_id)
+    if not result.get("ok", True):
+        raise RuntimeError(result.get("message", "예매 내역 조회 실패"))
+    return result["reservations"]
 
 
 def cancel_reservation(screening, seat, code, user_id):
-    with db_conn() as db:
-        db.execute("BEGIN IMMEDIATE")
-        db.execute("""
-            DELETE FROM seats
-            WHERE screening=? AND seat=? AND status='RESERVED'
-              AND user_id=? AND booking_code=?
-        """, (screening, seat, user_id, code))
-        changed = db.execute("SELECT changes()").fetchone()[0]
-        db.commit()
-    return changed == 1
+    result = rpc("CANCEL_RESERVATION", screening=screening, seat=seat,
+                 code=code, user_id=user_id)
+    return result.get("cancelled", False)
 
 
 def screening_label(screening):
@@ -202,8 +92,6 @@ def screening_label(screening):
                 return f'{movie["title"]} · {show["time"]}'
     return screening
 
-
-init_db()
 
 defaults = {
     "user": None, "hold": None, "selected_movie": MOVIES[0]["title"],
@@ -255,6 +143,7 @@ with st.sidebar:
         st.rerun()
     st.caption("결제: 시뮬레이션")
     st.caption("임시 좌석 점유: 5분")
+    st.caption("통신: TCP Socket · Thread-per-connection")
 
 st.title("🎬 CINEMA")
 st.caption("원하는 영화를 선택하고 좌석을 예매하세요.")
