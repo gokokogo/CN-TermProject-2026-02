@@ -14,13 +14,13 @@ COLUMNS = 8
 
 MOVIES = [
     {"title": "폭설", "genre": "Drama · Mystery", "minutes": 89,
-     "image": "https://m.media-amazon.com/images/M/MV5BN2Y4OGM4MWItZmQ2OC00YTg3LTljYWUtYTg1YzY1MGM5MTNlXkEyXkFqcGc%40._V1_FMjpg_UX1000_.jpg",
+     "image": "https://cdn.cgv.co.kr/cgvpomsfilm/Movie/Thumbnail/Poster/030001/30001643/30001643_320.jpg",
      "screenings": [{"id": "B1", "time": "14:00"}, {"id": "B2", "time": "19:30"}]},
     {"title": "치이카와", "genre": "Animation", "minutes": 90,
      "image": "https://image.starnewskorea.com/cdn-cgi/image/f%3Dauto%2Cw%3D1200%2Ch%3D1715%2Cfit%3Dcover%2Cq%3Dhigh%2Csharpen%3D2/21/2026/10/2026100107233725467_1.jpg",
      "screenings": [{"id": "C1", "time": "16:30"}, {"id": "C2", "time": "21:00"}]},
     {"title": "라라랜드", "genre": "Musical · Romance", "minutes": 128,
-     "image": "https://www.impawards.com/2016/posters/la_la_land_ver15_xxlg.jpg",
+     "image": "https://cdn.cgv.co.kr/cgvpomsfilm/Movie/Thumbnail/StillCut/000085/85672/85672200257_727.jpg",
      "screenings": [{"id": "L1", "time": "13:00"}, {"id": "L2", "time": "18:00"}]},
 ]
 
