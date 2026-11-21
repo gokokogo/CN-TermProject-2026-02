@@ -15,11 +15,14 @@ ROWS = "ABCDE"
 COLUMNS = 8
 
 MOVIES = [
-    {"title": "폭설", "genre": "Drama", "minutes": 100,
+    {"title": "폭설", "genre": "Drama · Mystery", "minutes": 89,
+     "image": "https://m.media-amazon.com/images/M/MV5BN2Y4OGM4MWItZmQ2OC00YTg3LTljYWUtYTg1YzY1MGM5MTNlXkEyXkFqcGc%40._V1_FMjpg_UX1000_.jpg",
      "screenings": [{"id": "B1", "time": "14:00"}, {"id": "B2", "time": "19:30"}]},
     {"title": "치이카와", "genre": "Animation", "minutes": 90,
+     "image": "https://image.starnewskorea.com/cdn-cgi/image/f%3Dauto%2Cw%3D1200%2Ch%3D1715%2Cfit%3Dcover%2Cq%3Dhigh%2Csharpen%3D2/21/2026/10/2026100107233725467_1.jpg",
      "screenings": [{"id": "C1", "time": "16:30"}, {"id": "C2", "time": "21:00"}]},
-    {"title": "라라랜드", "genre": "Musical", "minutes": 128,
+    {"title": "라라랜드", "genre": "Musical · Romance", "minutes": 128,
+     "image": "https://www.impawards.com/2016/posters/la_la_land_ver15_xxlg.jpg",
      "screenings": [{"id": "L1", "time": "13:00"}, {"id": "L2", "time": "18:00"}]},
 ]
 
@@ -203,211 +206,222 @@ def screening_label(screening):
 init_db()
 
 defaults = {
-    "user": None,
-    "hold": None,
-    "selected_screening": "O1",
-    "last_booking": None
+    "user": None, "hold": None, "selected_movie": MOVIES[0]["title"],
+    "selected_screening": MOVIES[0]["screenings"][0]["id"],
+    "selected_seat": None, "last_booking": None, "page": "영화 선택",
 }
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-st_autorefresh(interval=2000, key="seat_refresh")
+st_autorefresh(interval=1000, key="cinema_refresh")
+
+def movie_by_screening(screening):
+    for m in MOVIES:
+        for s in m["screenings"]:
+            if s["id"] == screening:
+                return m, s
+    return MOVIES[0], MOVIES[0]["screenings"][0]
+
+def go(page):
+    st.session_state.page = page
+    st.rerun()
 
 with st.sidebar:
     st.title("🎬 CINEMA")
     st.caption("MOVIE SEAT RESERVATION")
     st.divider()
-
     if st.session_state.user:
-        st.success(f'{st.session_state.user["name"]}님으로 이용 중')
-        st.caption(f'사용자 ID: {st.session_state.user["id"]}')
+        st.success(f'{st.session_state.user["id"]}님으로 이용 중')
         if st.button("사용자 변경 / 로그아웃", use_container_width=True):
             if st.session_state.hold:
-                release_hold(
-                    st.session_state.hold,
-                    st.session_state.user["id"]
-                )
+                release_hold(st.session_state.hold, st.session_state.user["id"])
             st.session_state.user = None
             st.session_state.hold = None
+            st.session_state.page = "영화 선택"
             st.rerun()
-    else:
-        st.caption("아이디를 입력하면 바로 예매를 시작할 수 있습니다.")
-
     st.divider()
+    st.radio("페이지 이동", ["영화 선택", "좌석 선택", "결제 대기", "나의 예매 내역"], key="page")
     st.caption("결제: 시뮬레이션")
     st.caption("임시 좌석 점유: 5분")
 
 st.title("🎬 CINEMA")
-st.caption("아이디를 입력하고 원하는 영화를 예매하세요.")
+st.caption("원하는 영화를 선택하고 좌석을 예매하세요.")
 
-# 회원가입과 비밀번호 없이 아이디만 입력하여 사용자 구분
 if not st.session_state.user:
     with st.form("user_id_form"):
-        uid = st.text_input(
-            "사용자 아이디",
-            placeholder="예: student01",
-            help="회원가입이나 비밀번호 없이 사용할 아이디를 입력하세요."
-        ).strip()
-        submit = st.form_submit_button(
-            "입장하기", type="primary", use_container_width=True
-        )
-
+        uid = st.text_input("사용자 아이디", placeholder="예: student01").strip()
+        submit = st.form_submit_button("입장하기", type="primary", use_container_width=True)
     if submit:
         if not uid:
             st.error("아이디를 입력해주세요.")
         elif len(uid) > 30:
             st.error("아이디는 30자 이하로 입력해주세요.")
         else:
-            # 입력한 아이디 자체를 사용자 고유 식별자로 사용
             st.session_state.user = {"id": uid, "name": uid}
             st.rerun()
-
-    st.info(
-        "시연용 간편 입장입니다. 비밀번호 인증이 없으므로 "
-        "다른 사람과 겹치지 않는 아이디를 사용해주세요."
-    )
+    st.info("시연용 간편 입장입니다. 다른 사람과 겹치지 않는 아이디를 사용해주세요.")
     st.stop()
 
 user_id = st.session_state.user["id"]
 st.subheader(f'{st.session_state.user["name"]}님, 환영합니다!')
+selected_screening = st.session_state.selected_screening
+movie_for_show, show_for_show = movie_by_screening(selected_screening)
 
-if st.session_state.hold:
-    hold = st.session_state.hold
-    remaining = max(0, int(hold["expires_at"] - time.time() + .999))
-
-    with db_conn() as db:
-        row = db.execute("""
-            SELECT * FROM seats
-            WHERE screening=? AND seat=? AND status='PENDING'
-              AND user_id=? AND hold_id=?
-        """, (
-            hold["screening"], hold["seat"], user_id, hold["hold_id"]
-        )).fetchone()
-
-    if not row or remaining <= 0:
-        st.session_state.hold = None
-        st.warning("임시 점유 시간이 만료되었습니다. 좌석을 다시 선택해주세요.")
-        st.rerun()
-
-    with st.container(border=True):
-        st.subheader("💳 결제 대기")
-        st.write(
-            f'선택 좌석: **{screening_label(hold["screening"])} / '
-            f'{hold["seat"]}**'
-        )
-        st.metric("남은 시간", f"{remaining // 60:02d}:{remaining % 60:02d}")
-        c1, c2 = st.columns(2)
-
-        with c1:
-            if st.button(
-                "모의 결제하기", type="primary", use_container_width=True
-            ):
-                ok, message, code = pay_hold(hold, user_id)
-                if ok:
-                    st.session_state.hold = None
-                    st.session_state.last_booking = (
-                        hold["screening"], hold["seat"], code
-                    )
-                    st.success(message)
-                else:
-                    st.error(message)
-                    st.session_state.hold = None
+if st.session_state.page == "영화 선택":
+    st.header("1. 영화 및 상영 시간 선택")
+    st.write("관람할 영화를 선택해주세요.")
+    cols = st.columns(3)
+    for i, movie in enumerate(MOVIES):
+        with cols[i]:
+            st.image(movie["image"], use_container_width=True)
+            st.markdown(f'**{movie["title"]}**')
+            st.caption(f'{movie["genre"]} · {movie["minutes"]}분')
+            if st.button("선택됨 ✓" if st.session_state.selected_movie == movie["title"] else "선택하기",
+                         key=f'movie_{i}', use_container_width=True,
+                         type="primary" if st.session_state.selected_movie == movie["title"] else "secondary"):
+                st.session_state.selected_movie = movie["title"]
+                st.session_state.selected_screening = movie["screenings"][0]["id"]
                 st.rerun()
 
-        with c2:
-            if st.button("예매 취소 / 좌석 반환", use_container_width=True):
-                release_hold(hold, user_id)
-                st.session_state.hold = None
+    movie = next(m for m in MOVIES if m["title"] == st.session_state.selected_movie)
+    st.divider()
+    st.subheader("상영 시간 선택")
+    left, right = st.columns([1, 2])
+    with left:
+        st.image(movie["image"], use_container_width=True)
+    with right:
+        st.markdown(f'### {movie["title"]}')
+        st.caption(f'{movie["genre"]} · {movie["minutes"]}분')
+        for show in movie["screenings"]:
+            if st.button(f'🕒 {show["time"]} 상영', key=f'show_{show["id"]}',
+                         type="primary" if st.session_state.selected_screening == show["id"] else "secondary",
+                         use_container_width=True):
+                st.session_state.selected_screening = show["id"]
                 st.rerun()
+        current = next(s for s in movie["screenings"] if s["id"] == st.session_state.selected_screening)
+        st.success(f'선택한 상영 시간: {current["time"]}')
+    if st.button("다음: 좌석 선택 →", type="primary", use_container_width=True):
+        st.session_state.selected_seat = None
+        go("좌석 선택")
 
-if st.session_state.last_booking:
-    screening, seat, code = st.session_state.last_booking
-    st.success(
-        f"예매 확정! {screening_label(screening)} · {seat} · "
-        f"예매번호 {code}"
-    )
-    if st.button("확인"):
-        st.session_state.last_booking = None
-        st.rerun()
-
-st.divider()
-st.subheader("영화 및 상영 시간 선택")
-
-movie_names = [m["title"] for m in MOVIES]
-movie_name = st.selectbox("영화", movie_names)
-movie = next(m for m in MOVIES if m["title"] == movie_name)
-show_options = {
-    f'{s["time"]} ({s["id"]})': s["id"]
-    for s in movie["screenings"]
-}
-selected_label = st.selectbox("상영 시간", list(show_options))
-screening = show_options[selected_label]
-st.session_state.selected_screening = screening
-
-st.subheader("좌석 선택")
-st.markdown('<div class="screen">SCREEN</div>', unsafe_allow_html=True)
-st.markdown("""
-<div class="seat-legend">
-<span>🟩 선택 가능</span>
-<span>🟨 결제 대기</span>
-<span>🟥 예매 완료</span>
-</div>
-""", unsafe_allow_html=True)
-
-seat_data = get_seats(screening, user_id)
-grid = st.columns(8)
-
-for idx, item in enumerate(seat_data):
-    seat = item["seat"]
-    status = item["status"]
-
-    if status == "AVAILABLE":
-        label, disabled = f"🟩 {seat}", bool(st.session_state.hold)
-    elif status == "PENDING":
-        label = f"🟨 {seat}" if item["mine"] else f"⏳ {seat}"
-        disabled = True
-    else:
-        label, disabled = f"🟥 {seat}", True
-
-    with grid[idx % 8]:
-        if st.button(
-            label,
-            key=f"seat_{screening}_{seat}",
-            disabled=disabled,
-            use_container_width=True
-        ):
-            ok, message, hold = create_hold(screening, seat, user_id)
+elif st.session_state.page == "좌석 선택":
+    st.header("2. 좌석 선택")
+    st.image(movie_for_show["image"], width=150)
+    st.markdown(f'**{movie_for_show["title"]}** · {show_for_show["time"]}')
+    st.caption("좌석을 하나 선택한 뒤 다음 단계로 이동하세요.")
+    st.markdown('<div class="screen">SCREEN</div>', unsafe_allow_html=True)
+    st.markdown('<div class="seat-legend"><span>🟩 선택 가능</span><span>🟨 결제 대기</span><span>🟥 예매 완료</span></div>', unsafe_allow_html=True)
+    seat_data = get_seats(selected_screening, user_id)
+    for row in ROWS:
+        cols = st.columns(COLUMNS)
+        for col_idx in range(COLUMNS):
+            seat = f"{row}{col_idx+1}"
+            item = next(x for x in seat_data if x["seat"] == seat)
+            status = item["status"]
+            if status == "AVAILABLE":
+                label, disabled = f"🟩 {seat}", bool(st.session_state.hold)
+            elif status == "PENDING":
+                label, disabled = (f"🟨 {seat}" if item.get("mine") else f"⏳ {seat}"), True
+            else:
+                label, disabled = f"🟥 {seat}", True
+            if st.session_state.selected_seat == seat and status == "AVAILABLE":
+                label = f"🔵 {seat}"
+            with cols[col_idx]:
+                if st.button(label, key=f"seat_{selected_screening}_{seat}",
+                             disabled=disabled, use_container_width=True):
+                    st.session_state.selected_seat = seat
+                    st.rerun()
+    if st.session_state.selected_seat:
+        st.info(f'선택한 좌석: **{st.session_state.selected_seat}**')
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← 이전 단계", use_container_width=True):
+            go("영화 선택")
+    with c2:
+        if st.button("다음: 결제 대기 →", type="primary",
+                     disabled=not st.session_state.selected_seat, use_container_width=True):
+            ok, message, hold = create_hold(selected_screening, st.session_state.selected_seat, user_id)
             if ok:
                 st.session_state.hold = hold
+                go("결제 대기")
             else:
-                st.warning(message)
-            st.rerun()
+                st.error(message)
+                st.rerun()
+
+elif st.session_state.page == "결제 대기":
+    st.header("3. 결제 대기")
+    hold = st.session_state.hold
+    if not hold:
+        st.warning("현재 결제 대기 중인 예매가 없습니다. 영화를 선택하고 좌석을 예약해주세요.")
+        if st.button("영화 선택으로 이동", type="primary"):
+            go("영화 선택")
+    else:
+        movie, show = movie_by_screening(hold["screening"])
+        remaining = max(0, int(hold["expires_at"] - time.time() + .999))
+        with db_conn() as db:
+            row = db.execute("""SELECT * FROM seats WHERE screening=? AND seat=? AND status='PENDING'
+                                AND user_id=? AND hold_id=?""",
+                             (hold["screening"], hold["seat"], user_id, hold["hold_id"])).fetchone()
+        if not row or remaining <= 0:
+            st.session_state.hold = None
+            st.session_state.selected_seat = None
+            st.error("임시 점유 시간이 만료되었습니다. 좌석을 다시 선택해주세요.")
+        else:
+            left, right = st.columns([1, 2])
+            with left:
+                st.image(movie["image"], use_container_width=True)
+            with right:
+                st.subheader(movie["title"])
+                st.write(f'상영 시간: **{show["time"]}**')
+                st.write(f'좌석 정보: **{hold["seat"]}**')
+                st.write(f'사용자 ID: **{user_id}**')
+                st.metric("결제 가능 남은 시간", f"{remaining // 60:02d}:{remaining % 60:02d}")
+            st.warning("5분 안에 모의 결제를 완료해주세요. 시간이 지나면 좌석이 자동 반환됩니다.")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("💳 모의 결제하기", type="primary", use_container_width=True):
+                    ok, message, code = pay_hold(hold, user_id)
+                    if ok:
+                        st.session_state.hold = None
+                        st.session_state.last_booking = (hold["screening"], hold["seat"], code)
+                        st.success(message)
+                        go("나의 예매 내역")
+                    else:
+                        st.error(message)
+                        st.session_state.hold = None
+                        st.rerun()
+            with c2:
+                if st.button("예매 취소 및 좌석 반환", use_container_width=True):
+                    release_hold(hold, user_id)
+                    st.session_state.hold = None
+                    st.session_state.selected_seat = None
+                    go("영화 선택")
+
+elif st.session_state.page == "나의 예매 내역":
+    st.header("나의 예매 내역")
+    if st.session_state.last_booking:
+        screening, seat, code = st.session_state.last_booking
+        st.success(f"최근 예매 완료: {screening_label(screening)} · {seat} · 예매번호 {code}")
+    my_reservations = reservations(user_id)
+    if not my_reservations:
+        st.info("확정된 예매 내역이 없습니다.")
+    else:
+        for booking in my_reservations:
+            movie, show = movie_by_screening(booking["screening"])
+            with st.container(border=True):
+                a, b = st.columns([1, 3])
+                with a:
+                    st.image(movie["image"], use_container_width=True)
+                with b:
+                    st.subheader(movie["title"])
+                    st.write(f'상영 시간: **{show["time"]}**')
+                    st.write(f'좌석: **{booking["seat"]}**')
+                    st.write(f'예매번호: `{booking["booking_code"]}`')
+                    if st.button("예매 취소", key=f'cancel_{booking["screening"]}_{booking["seat"]}'):
+                        if cancel_reservation(booking["screening"], booking["seat"],
+                                              booking["booking_code"], user_id):
+                            st.success("예매가 취소되었습니다.")
+                        st.rerun()
 
 st.divider()
-st.subheader("나의 예매 내역")
-
-my_reservations = reservations(user_id)
-if not my_reservations:
-    st.caption("확정된 예매 내역이 없습니다.")
-else:
-    for booking in my_reservations:
-        with st.container(border=True):
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                st.write(f'**{screening_label(booking["screening"])}**')
-                st.write(
-                    f'좌석: {booking["seat"]} · 예매번호: '
-                    f'`{booking["booking_code"]}`'
-                )
-            with c2:
-                if st.button(
-                    "예매 취소",
-                    key=f'cancel_{booking["screening"]}_{booking["seat"]}'
-                ):
-                    if cancel_reservation(
-                        booking["screening"], booking["seat"],
-                        booking["booking_code"], user_id
-                    ):
-                        st.success("예매가 취소되었습니다.")
-                    st.rerun()
