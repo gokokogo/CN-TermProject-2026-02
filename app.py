@@ -259,11 +259,8 @@ elif st.session_state.page == "결제 대기":
     else:
         movie, show = movie_by_screening(hold["screening"])
         remaining = max(0, int(hold["expires_at"] - time.time() + .999))
-        with db_conn() as db:
-            row = db.execute("""SELECT * FROM seats WHERE screening=? AND seat=? AND status='PENDING'
-                                AND user_id=? AND hold_id=?""",
-                             (hold["screening"], hold["seat"], user_id, hold["hold_id"])).fetchone()
-        if not row or remaining <= 0:
+        hold_check = rpc("VALIDATE_HOLD", hold=hold, user_id=user_id)
+        if not hold_check.get("valid", False) or remaining <= 0:
             st.session_state.hold = None
             st.session_state.selected_seat = None
             st.error("임시 점유 시간이 만료되었습니다. 좌석을 다시 선택해주세요.")
