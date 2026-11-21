@@ -57,6 +57,8 @@ class ReservationService:
             return self.create_hold(request["screening"], request["seat"], request["user_id"])
         if op == "PAY_HOLD":
             return self.pay_hold(request["hold"], request["user_id"])
+        if op == "VALIDATE_HOLD":
+            return self.validate_hold(request["hold"], request["user_id"])
         if op == "RELEASE_HOLD":
             return self.release_hold(request["hold"], request["user_id"])
         if op == "RESERVATIONS":
@@ -128,6 +130,20 @@ class ReservationService:
                        (code, hold["screening"], hold["seat"]))
             db.commit()
         return _response(True, "모의 결제가 완료되어 예매가 확정되었습니다.", code=code)
+
+
+    def validate_hold(self, hold, user_id):
+        """Check that this user's pending hold still exists and has not expired."""
+        with _connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            _expire_holds(db)
+            row = db.execute(
+                "SELECT 1 FROM seats WHERE screening=? AND seat=? AND status='PENDING' "
+                "AND user_id=? AND hold_id=?",
+                (hold["screening"], hold["seat"], user_id, hold["hold_id"]),
+            ).fetchone()
+            db.commit()
+        return _response(valid=(row is not None))
 
     def release_hold(self, hold, user_id):
         with _connect() as db:
