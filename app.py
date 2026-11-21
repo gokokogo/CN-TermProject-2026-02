@@ -129,18 +129,18 @@ with st.sidebar:
             st.session_state.page = "영화 선택"
             st.rerun()
     st.divider()
-    pages = ["영화 선택", "좌석 선택", "결제 대기", "나의 예매 내역"]
-    page_choice = st.radio(
-        "페이지 이동",
-        pages,
-        index=pages.index(st.session_state.page),
-    )
-    # 페이지 이동용 radio는 별도의 위젯 상태를 사용합니다.
-    # st.session_state.page를 radio의 key로 직접 연결하면 버튼에서 go()가
-    # 페이지 값을 바꿀 때 이미 생성된 위젯 상태와 충돌할 수 있습니다.
-    if page_choice != st.session_state.page:
-        st.session_state.page = page_choice
-        st.rerun()
+    # Navigation uses buttons rather than a persistent radio widget.
+    # A radio widget can retain its previous selection across st.rerun() and
+    # overwrite page changes made by go(), causing navigation buttons to appear ineffective.
+    st.caption("페이지 이동")
+    for nav_page in ["영화 선택", "좌석 선택", "결제 대기", "나의 예매 내역"]:
+        if st.button(
+            nav_page,
+            key=f"nav_{nav_page}",
+            use_container_width=True,
+            type="primary" if st.session_state.page == nav_page else "secondary",
+        ):
+            go(nav_page)
     st.caption("결제: 시뮬레이션")
     st.caption("임시 좌석 점유: 5분")
     st.caption("통신: TCP Socket · Thread-per-connection")
@@ -241,30 +241,50 @@ elif st.session_state.page == "좌석 선택":
     with c2:
         if st.button("다음: 결제 대기 →", type="primary",
                      disabled=not st.session_state.selected_seat, use_container_width=True):
-            ok, message, hold = create_hold(selected_screening, st.session_state.selected_seat, user_id)
-            if ok:
+            try:
+                ok, message, hold = create_hold(
+                    selected_screening, st.session_state.selected_seat, user_id
+                )
+            except Exception as exc:
+                ok, message, hold = False, f"예약 서버 연결 오류: {exc}", None
+            if ok and hold:
+                # Persist the hold in this Streamlit session before changing pages.
                 st.session_state.hold = hold
-                go("결제 대기")
-            else:
-                st.error(message)
+                st.session_state.selected_screening = hold["screening"]
+                st.session_state.selected_seat = hold["seat"]
+                st.session_state.page = "결제 대기"
                 st.rerun()
+            else:
+                st.error(message or "좌석 임시 점유에 실패했습니다.")
 
 elif st.session_state.page == "결제 대기":
     st.header("3. 결제 대기")
     hold = st.session_state.hold
     # Streamlit 세션 상태가 초기화되거나 화면이 새로고침된 경우,
     # TCP 서버의 SQLite 데이터베이스에서 사용자의 임시 점유를 복구합니다.
+    recovery_error = None
     if not hold:
-        recovered = rpc("GET_ACTIVE_HOLD", user_id=user_id)
-        hold = recovered.get("hold")
-        if hold:
-            st.session_state.hold = hold
-            st.session_state.selected_screening = hold["screening"]
-            st.session_state.selected_seat = hold["seat"]
+        try:
+            recovered = rpc("GET_ACTIVE_HOLD", user_id=user_id)
+            if not recovered.get("ok", True):
+                recovery_error = recovered.get("message", "임시 점유 조회에 실패했습니다.")
+            else:
+                hold = recovered.get("hold")
+                if hold:
+                    st.session_state.hold = hold
+                    st.session_state.selected_screening = hold["screening"]
+                    st.session_state.selected_seat = hold["seat"]
+        except Exception as exc:
+            recovery_error = str(exc)
     if not hold:
         st.warning("현재 결제 대기 중인 예매가 없습니다. 영화를 선택하고 좌석을 예약해주세요.")
-        if st.button("영화 선택으로 이동", type="primary"):
-            go("영화 선택")
+        if recovery_error:
+            st.error(f"예약 서버 조회 오류: {recovery_error}")
+        if st.button("영화 선택으로 이동", type="primary", key="payment_to_movie"):
+            st.session_state.hold = None
+            st.session_state.selected_seat = None
+            st.session_state.page = "영화 선택"
+            st.rerun()
     else:
         movie, show = movie_by_screening(hold["screening"])
         remaining = max(0, int(hold["expires_at"] - time.time() + .999))
