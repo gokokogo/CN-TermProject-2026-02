@@ -371,5 +371,3 @@ else:
                                           booking["booking_code"], user_id):
                         st.success("예매가 취소되었습니다.")
                     st.rerun()
-
-st.caption("※ 본 사이트는 수업 시연용입니다. 결제는 실제 결제가 아닌 모의 결제이며, 개인정보나 실제 결제정보를 입력하지 마세요.")
