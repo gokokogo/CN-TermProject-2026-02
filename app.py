@@ -241,7 +241,18 @@ with st.sidebar:
             st.session_state.page = "영화 선택"
             st.rerun()
     st.divider()
-    st.radio("페이지 이동", ["영화 선택", "좌석 선택", "결제 대기", "나의 예매 내역"], key="page")
+    pages = ["영화 선택", "좌석 선택", "결제 대기", "나의 예매 내역"]
+    page_choice = st.radio(
+        "페이지 이동",
+        pages,
+        index=pages.index(st.session_state.page),
+    )
+    # 페이지 이동용 radio는 별도의 위젯 상태를 사용합니다.
+    # st.session_state.page를 radio의 key로 직접 연결하면 버튼에서 go()가
+    # 페이지 값을 바꿀 때 이미 생성된 위젯 상태와 충돌할 수 있습니다.
+    if page_choice != st.session_state.page:
+        st.session_state.page = page_choice
+        st.rerun()
     st.caption("결제: 시뮬레이션")
     st.caption("임시 좌석 점유: 5분")
 
