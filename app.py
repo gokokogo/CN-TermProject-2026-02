@@ -252,6 +252,15 @@ elif st.session_state.page == "좌석 선택":
 elif st.session_state.page == "결제 대기":
     st.header("3. 결제 대기")
     hold = st.session_state.hold
+    # Streamlit 세션 상태가 초기화되거나 화면이 새로고침된 경우,
+    # TCP 서버의 SQLite 데이터베이스에서 사용자의 임시 점유를 복구합니다.
+    if not hold:
+        recovered = rpc("GET_ACTIVE_HOLD", user_id=user_id)
+        hold = recovered.get("hold")
+        if hold:
+            st.session_state.hold = hold
+            st.session_state.selected_screening = hold["screening"]
+            st.session_state.selected_seat = hold["seat"]
     if not hold:
         st.warning("현재 결제 대기 중인 예매가 없습니다. 영화를 선택하고 좌석을 예약해주세요.")
         if st.button("영화 선택으로 이동", type="primary"):
@@ -322,3 +331,4 @@ elif st.session_state.page == "나의 예매 내역":
                         st.rerun()
 
 st.divider()
+st.caption("※ 수업 시연용 홈페이지입니다. 아이디만으로 사용자를 구분하므로 다른 사람의 아이디를 입력하면 해당 사용자의 예매 내역을 볼 수 있습니다. 실제 개인정보나 결제정보를 입력하지 마세요.")
