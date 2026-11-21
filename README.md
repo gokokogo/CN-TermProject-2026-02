@@ -11,14 +11,6 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Streamlit Community Cloud 배포
-1. GitHub에 새 **Private repository**를 만듭니다.
-2. 이 폴더의 `app.py`, `requirements.txt`, `README.md`를 저장소 루트에 올립니다.
-3. https://share.streamlit.io/ 에서 GitHub로 로그인합니다.
-4. Create app을 선택하고 저장소, 브랜치(`main`), 파일 경로(`app.py`)를 지정해 배포합니다.
-5. 배포 후 App settings의 Sharing에서 `Only specific people can view this app`으로 설정하고 시연자 이메일을 초대합니다.
-6. 초대받은 사람은 이메일 링크 또는 지원되는 로그인 방식으로 앱을 열 수 있습니다. 앱 내부의 회원가입/로그인은 별도로 진행합니다.
-
 ## 주요 기능
 - 회원가입 및 로그인 (비밀번호는 PBKDF2 해시로 저장)
 - 영화/상영 시간 선택
