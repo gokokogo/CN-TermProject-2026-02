@@ -55,6 +55,8 @@ class ReservationService:
             return self.get_seats(request["screening"], request["user_id"])
         if op == "CREATE_HOLD":
             return self.create_hold(request["screening"], request["seat"], request["user_id"])
+        if op == "GET_ACTIVE_HOLD":
+            return self.get_active_hold(request["user_id"])
         if op == "PAY_HOLD":
             return self.pay_hold(request["hold"], request["user_id"])
         if op == "VALIDATE_HOLD":
@@ -110,6 +112,26 @@ class ReservationService:
             db.commit()
         return _response(True, "좌석을 5분간 임시 점유했습니다.", hold={
             "screening": screening, "seat": seat, "hold_id": hold_id, "expires_at": expires
+        })
+
+    def get_active_hold(self, user_id):
+        """Recover the user's active pending reservation from the shared DB."""
+        with _connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            _expire_holds(db)
+            row = db.execute(
+                "SELECT screening, seat, hold_id, expires_at FROM seats "
+                "WHERE user_id=? AND status='PENDING' ORDER BY expires_at DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            db.commit()
+        if row is None:
+            return _response(hold=None)
+        return _response(hold={
+            "screening": row["screening"],
+            "seat": row["seat"],
+            "hold_id": row["hold_id"],
+            "expires_at": row["expires_at"],
         })
 
     def pay_hold(self, hold, user_id):
