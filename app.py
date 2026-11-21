@@ -35,11 +35,11 @@ st.markdown("""
 
 
 @st.cache_resource
-def get_tcp_runtime():
+def get_tcp_runtime(runtime_version):
     return ServerRuntime()
 
 
-_tcp_runtime = get_tcp_runtime()
+_tcp_runtime = get_tcp_runtime("20261121_get_active_hold_v1")
 TCP_ADDRESS = _tcp_runtime.address
 
 
