@@ -1,14 +1,14 @@
 # CINEMA Reservation Application
 
 ## 구성
-app.py: 홈페이지 UI 및 예매 기능
+cinema_demo.db: 영화 상영 정보, 좌석 예약 및 결제 상태 등의 데이터를 저장하는 SQLite 데이터베이스 파일
 
-reservation_server.py: TCP 서버 및 예약 처리
+reservation_server.py: SQLite DB에 접근해 예약 생성, 조회, 결제, 취소 등의 작업을 처리하는 TCP 서버
 
-cinema_demo.db: 예약 정보 관리
+app.py: 사용자가 홈페이지에서 영화와 좌석을 선택하고 예약 기능을 이용하는 Streamlit 화면
 
 ## 주요 기능
-- 회원가입 및 로그인 (비밀번호는 PBKDF2 해시로 저장)
+- 로그인
 - 영화/상영 시간 선택
 - 좌석 현황 실시간 갱신
 - 5분 임시 점유(pending)
